@@ -275,6 +275,38 @@ const state = {
     onlyOffers: false,
     sortBy: "recommended"
   },
+  auth: {
+    isLoggedIn: false,
+    user: null
+  },
+  userOrders: [
+    {
+      id: "VS-8921",
+      date: "14 Oct 2026",
+      items: "Acetaminofén 500mg, Dolex Gripa",
+      total: 27100,
+      status: "Entregado",
+      statusClass: "order-badge-status--delivered"
+    },
+    {
+      id: "VS-9044",
+      date: "Hoy, 13:45",
+      items: "Protector Solar SPF 50+, Vitamina C + Zinc",
+      total: 91500,
+      status: "En reparto express (<45 min)",
+      statusClass: "order-badge-status--shipping"
+    }
+  ],
+  userPrescriptions: [
+    {
+      id: "RX-4102",
+      doctor: "Dr. Carlos Méndez (Médico General)",
+      medication: "Amoxicilina 500 mg — 1 cápsula cada 8 horas x 7 días",
+      issued: "10 Oct 2026",
+      expires: "25 Oct 2026",
+      verified: true
+    }
+  ],
   freeShippingThreshold: 50000,
   shippingCost: 5500
 };
@@ -730,7 +762,19 @@ function openDemoCheckoutModal() {
 
   // Generar desglose en ticket
   if (ticket) {
+    const userLine = (state.auth.isLoggedIn && state.auth.user) ? `
+      <div style="background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; font-size: 0.8125rem;">
+        <div>👤 <strong>Comprador:</strong> ${state.auth.user.name} (${state.auth.user.phone || 'Teléfono verificado'})</div>
+        <div style="margin-top: 0.2rem;">📍 <strong>Envío express a:</strong> ${state.auth.user.address || 'Av. Calle 127 #15-32, Bogotá D.C.'}</div>
+      </div>
+    ` : `
+      <div style="background-color: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.55rem 0.85rem; margin-bottom: 0.85rem; font-size: 0.78125rem; color: #475569;">
+        💡 <em>Consejo: Puedes iniciar sesión desde el menú de navegación para guardar tu dirección de entrega y consultar fórmulas médicas.</em>
+      </div>
+    `;
+
     ticket.innerHTML = `
+      ${userLine}
       <div style="font-weight: 700; margin-bottom: 0.5rem; color: var(--primary-800);">Resumen del Pedido Simulado (${totalItems} unidades):</div>
       <ul style="margin-bottom: 0.75rem; padding-left: 1.25rem; list-style: disc;">
         ${state.cart.map(i => `<li>${i.quantity}x ${i.name} — <strong>${formatCOP(i.price * i.quantity)}</strong></li>`).join("")}
@@ -753,6 +797,280 @@ function openDemoCheckoutModal() {
 
 function closeDemoCheckoutModal() {
   const modal = document.getElementById("demoModal");
+  if (!modal) return;
+  modal.classList.remove("is-active");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+// --- 9.1 Sistema de Autenticación, Gestión de Sesión y Perfil de Usuario ---
+const DEMO_USER = {
+  name: "Juan Pérez",
+  email: "juan.perez@ejemplo.com",
+  phone: "(+57) 300 123 4567",
+  address: "Av. Calle 127 #15-32, Apto 402, Bogotá D.C.",
+  initials: "JP"
+};
+
+function initAuth() {
+  const saved = localStorage.getItem("vida_sana_session") || sessionStorage.getItem("vida_sana_session");
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (parsed && parsed.name) {
+        state.auth.isLoggedIn = true;
+        state.auth.user = parsed;
+      }
+    } catch (e) {
+      console.error("Error al cargar la sesión:", e);
+    }
+  }
+  updateAuthUI();
+}
+
+function updateAuthUI() {
+  const headerBtn = document.getElementById("headerAuthBtn");
+  const greeting = document.getElementById("headerAuthGreeting");
+  const label = document.getElementById("headerAuthLabel");
+  const chevron = document.getElementById("headerAuthChevron");
+  const avatarBox = document.getElementById("headerAuthAvatar");
+  const navAuthText = document.getElementById("navAuthText");
+
+  const dropdownAvatar = document.getElementById("dropdownAvatar");
+  const dropdownName = document.getElementById("dropdownUserName");
+  const dropdownEmail = document.getElementById("dropdownUserEmail");
+
+  if (!headerBtn) return;
+
+  if (state.auth.isLoggedIn && state.auth.user) {
+    const firstName = state.auth.user.name.split(" ")[0];
+    headerBtn.classList.add("is-logged-in");
+    headerBtn.setAttribute("aria-label", `Mi cuenta: ${state.auth.user.name}`);
+    
+    if (greeting) greeting.textContent = `Hola, ${firstName}`;
+    if (label) label.textContent = "Mi Cuenta";
+    if (chevron) chevron.style.display = "block";
+    if (avatarBox) avatarBox.textContent = state.auth.user.initials || firstName[0].toUpperCase();
+
+    if (navAuthText) navAuthText.textContent = `Mi Cuenta (${firstName})`;
+
+    if (dropdownAvatar) dropdownAvatar.textContent = state.auth.user.initials || firstName[0].toUpperCase();
+    if (dropdownName) dropdownName.textContent = state.auth.user.name;
+    if (dropdownEmail) dropdownEmail.textContent = state.auth.user.email;
+  } else {
+    headerBtn.classList.remove("is-logged-in");
+    headerBtn.classList.remove("is-menu-open");
+    headerBtn.setAttribute("aria-label", "Iniciar sesión o registrarme");
+
+    if (greeting) greeting.textContent = "Bienvenido";
+    if (label) label.textContent = "Iniciar Sesión";
+    if (chevron) chevron.style.display = "none";
+    if (avatarBox) {
+      avatarBox.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+          <circle cx="12" cy="7" r="4"></circle>
+        </svg>
+      `;
+    }
+
+    if (navAuthText) navAuthText.textContent = "Iniciar Sesión";
+
+    closeUserDropdown();
+  }
+}
+
+function openAuthModal(tab = "login") {
+  closeUserDropdown();
+  const modal = document.getElementById("authModal");
+  if (!modal) return;
+
+  switchAuthTab(tab);
+  modal.classList.add("is-active");
+  modal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("cart-open");
+
+  if (tab === "login") {
+    setTimeout(() => document.getElementById("loginEmail")?.focus(), 120);
+  } else {
+    setTimeout(() => document.getElementById("registerName")?.focus(), 120);
+  }
+}
+
+function closeAuthModal() {
+  const modal = document.getElementById("authModal");
+  if (!modal) return;
+  modal.classList.remove("is-active");
+  modal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("cart-open");
+}
+
+function switchAuthTab(tab) {
+  const tabLoginBtn = document.getElementById("tabLoginBtn");
+  const tabRegisterBtn = document.getElementById("tabRegisterBtn");
+  const loginPanel = document.getElementById("loginTabPanel");
+  const registerPanel = document.getElementById("registerTabPanel");
+
+  if (!tabLoginBtn || !tabRegisterBtn || !loginPanel || !registerPanel) return;
+
+  if (tab === "login") {
+    tabLoginBtn.classList.add("is-active");
+    tabLoginBtn.setAttribute("aria-selected", "true");
+    tabRegisterBtn.classList.remove("is-active");
+    tabRegisterBtn.setAttribute("aria-selected", "false");
+    loginPanel.style.display = "block";
+    registerPanel.style.display = "none";
+  } else {
+    tabRegisterBtn.classList.add("is-active");
+    tabRegisterBtn.setAttribute("aria-selected", "true");
+    tabLoginBtn.classList.remove("is-active");
+    tabLoginBtn.setAttribute("aria-selected", "false");
+    registerPanel.style.display = "block";
+    loginPanel.style.display = "none";
+  }
+}
+
+function toggleUserDropdown() {
+  if (!state.auth.isLoggedIn) {
+    openAuthModal("login");
+    return;
+  }
+
+  const dropdown = document.getElementById("userDropdown");
+  const headerBtn = document.getElementById("headerAuthBtn");
+  if (!dropdown || !headerBtn) return;
+
+  const isOpen = dropdown.classList.contains("is-active");
+  if (isOpen) {
+    closeUserDropdown();
+  } else {
+    dropdown.classList.add("is-active");
+    dropdown.setAttribute("aria-hidden", "false");
+    headerBtn.classList.add("is-menu-open");
+    headerBtn.setAttribute("aria-expanded", "true");
+  }
+}
+
+function closeUserDropdown() {
+  const dropdown = document.getElementById("userDropdown");
+  const headerBtn = document.getElementById("headerAuthBtn");
+  if (dropdown) {
+    dropdown.classList.remove("is-active");
+    dropdown.setAttribute("aria-hidden", "true");
+  }
+  if (headerBtn) {
+    headerBtn.classList.remove("is-menu-open");
+    headerBtn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function performLogin(userData, remember = true) {
+  state.auth.isLoggedIn = true;
+  state.auth.user = userData;
+
+  if (remember) {
+    localStorage.setItem("vida_sana_session", JSON.stringify(userData));
+  } else {
+    sessionStorage.setItem("vida_sana_session", JSON.stringify(userData));
+  }
+
+  updateAuthUI();
+  closeAuthModal();
+  showToast(`¡Bienvenido de nuevo, ${userData.name}! Sesión iniciada.`, "success");
+}
+
+function performLogout() {
+  state.auth.isLoggedIn = false;
+  state.auth.user = null;
+  localStorage.removeItem("vida_sana_session");
+  sessionStorage.removeItem("vida_sana_session");
+
+  updateAuthUI();
+  closeUserDropdown();
+  showToast("Has cerrado tu sesión de forma segura.", "remove");
+}
+
+function openUserOrdersModal(view = "all") {
+  closeUserDropdown();
+  const modal = document.getElementById("userOrdersModal");
+  const content = document.getElementById("userModalContent");
+  const title = document.getElementById("userOrdersModalTitle");
+  if (!modal || !content) return;
+
+  if (title) {
+    if (view === "rx") title.textContent = "Mis Fórmulas Médicas Guardadas";
+    else if (view === "address") title.textContent = "Mis Direcciones de Domicilio";
+    else title.textContent = "Mi Cuenta — Pedidos y Fórmulas";
+  }
+
+  const userName = state.auth.user ? state.auth.user.name : "Juan Pérez";
+  const userAddress = state.auth.user ? state.auth.user.address : "Av. Calle 127 #15-32, Bogotá D.C.";
+
+  let html = "";
+
+  if (view === "all" || view === "orders") {
+    html += `
+      <div style="margin-bottom: 1.5rem;">
+        <h4 class="user-modal-section-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>
+          Historial de Pedidos Recientes
+        </h4>
+        ${state.userOrders.map(order => `
+          <div class="order-card-demo">
+            <div>
+              <div style="font-weight: 700; color: var(--primary-900); font-size: 0.9375rem;">Pedido #${order.id}</div>
+              <div style="font-size: 0.8125rem; color: var(--text-muted);">${order.items} • Fecha: ${order.date}</div>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-weight: 800; font-family: var(--font-heading); color: var(--primary-700);">${formatCOP(order.total)}</div>
+              <span class="order-badge-status ${order.statusClass}">${order.status}</span>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  if (view === "all" || view === "rx") {
+    html += `
+      <div style="margin-bottom: 1.5rem;">
+        <h4 class="user-modal-section-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+          Fórmulas Médicas Registradas (INVIMA / Validación)
+        </h4>
+        ${state.userPrescriptions.map(rx => `
+          <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 0.5rem; font-size: 0.84375rem;">
+            <div style="font-weight: 700; color: #065f46;">Fórmula #${rx.id} — ${rx.doctor}</div>
+            <div style="color: #047857; margin-top: 0.2rem;">${rx.medication}</div>
+            <div style="font-size: 0.75rem; color: #64748b; margin-top: 0.35rem;">Emitida: ${rx.issued} | Vigente hasta: ${rx.expires} (Verificada)</div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  if (view === "all" || view === "address") {
+    html += `
+      <div>
+        <h4 class="user-modal-section-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+          Dirección Principal para Domicilio Express
+        </h4>
+        <div style="background-color: var(--bg-surface-alt); border: 1px solid var(--border-light); border-radius: 8px; padding: 0.85rem 1rem; font-size: 0.875rem;">
+          <div style="font-weight: 700; color: var(--text-primary);">${userName}</div>
+          <div style="color: var(--text-secondary); margin-top: 0.2rem;">📍 ${userAddress}</div>
+          <div style="color: var(--primary-600); font-size: 0.75rem; font-weight: 700; margin-top: 0.35rem;">✓ Cobertura Express menor a 45 minutos confirmada</div>
+        </div>
+      </div>
+    `;
+  }
+
+  content.innerHTML = html;
+  modal.classList.add("is-active");
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function closeUserOrdersModal() {
+  const modal = document.getElementById("userOrdersModal");
   if (!modal) return;
   modal.classList.remove("is-active");
   modal.setAttribute("aria-hidden", "true");
@@ -914,15 +1232,192 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 8. Accesibilidad de teclado: tecla Escape para cerrar modales y drawers
+  // 8. Eventos de Autenticación y Sesión de Usuario
+  const headerAuthBtn = document.getElementById("headerAuthBtn");
+  const navAuthBtn = document.getElementById("navAuthBtn");
+  const btnLogout = document.getElementById("btnLogout");
+  const authModalCloseBtn = document.getElementById("authModalCloseBtn");
+  const authModalBackdrop = document.getElementById("authModalBackdrop");
+  const tabLoginBtn = document.getElementById("tabLoginBtn");
+  const tabRegisterBtn = document.getElementById("tabRegisterBtn");
+  const toggleLoginPassBtn = document.getElementById("toggleLoginPassBtn");
+  const forgotPassLink = document.getElementById("forgotPassLink");
+  const quickDemoLoginBtn = document.getElementById("quickDemoLoginBtn");
+  const loginForm = document.getElementById("loginForm");
+  const registerForm = document.getElementById("registerForm");
+  const closeUserOrdersModalBtn = document.getElementById("closeUserOrdersModalBtn");
+  const userOrdersModal = document.getElementById("userOrdersModal");
+
+  // Botón de sesión en header y en navbar
+  if (headerAuthBtn) {
+    headerAuthBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleUserDropdown();
+    });
+  }
+
+  if (navAuthBtn) {
+    navAuthBtn.addEventListener("click", () => {
+      if (state.auth.isLoggedIn) {
+        openUserOrdersModal("all");
+      } else {
+        openAuthModal("login");
+      }
+    });
+  }
+
+  // Opciones del menú de usuario
+  document.querySelectorAll(".js-open-orders").forEach(btn => {
+    btn.addEventListener("click", () => openUserOrdersModal("orders"));
+  });
+
+  document.querySelectorAll(".js-open-rx").forEach(btn => {
+    btn.addEventListener("click", () => openUserOrdersModal("rx"));
+  });
+
+  document.querySelectorAll(".js-open-address").forEach(btn => {
+    btn.addEventListener("click", () => openUserOrdersModal("address"));
+  });
+
+  if (btnLogout) {
+    btnLogout.addEventListener("click", performLogout);
+  }
+
+  // Cerrar menú desplegable al hacer clic fuera
+  document.addEventListener("click", (e) => {
+    const wrapper = document.getElementById("userMenuWrapper");
+    if (wrapper && !wrapper.contains(e.target)) {
+      closeUserDropdown();
+    }
+  });
+
+  // Eventos del Modal de Autenticación
+  if (authModalCloseBtn) authModalCloseBtn.addEventListener("click", closeAuthModal);
+  if (authModalBackdrop) authModalBackdrop.addEventListener("click", closeAuthModal);
+
+  if (tabLoginBtn) tabLoginBtn.addEventListener("click", () => switchAuthTab("login"));
+  if (tabRegisterBtn) tabRegisterBtn.addEventListener("click", () => switchAuthTab("register"));
+
+  // Toggle ver contraseña
+  if (toggleLoginPassBtn) {
+    toggleLoginPassBtn.addEventListener("click", () => {
+      const passInput = document.getElementById("loginPassword");
+      if (!passInput) return;
+      const isPass = passInput.type === "password";
+      passInput.type = isPass ? "text" : "password";
+      toggleLoginPassBtn.title = isPass ? "Ocultar contraseña" : "Mostrar contraseña";
+    });
+  }
+
+  if (forgotPassLink) {
+    forgotPassLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      showToast("Comunícate con soporte farmacéutico (+57 300 123 4567) para restablecer tu contraseña.", "success");
+    });
+  }
+
+  // Acceso de demostración rápida
+  if (quickDemoLoginBtn) {
+    quickDemoLoginBtn.addEventListener("click", () => {
+      performLogin(DEMO_USER, true);
+    });
+  }
+
+  // Formulario de Inicio de Sesión
+  if (loginForm) {
+    loginForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const emailInput = document.getElementById("loginEmail");
+      const passInput = document.getElementById("loginPassword");
+      const rememberInput = document.getElementById("rememberMe");
+
+      const emailVal = emailInput?.value.trim() || "";
+      const passVal = passInput?.value || "";
+
+      if (!emailVal || !passVal) {
+        showToast("Por favor ingresa tu correo y contraseña.", "remove");
+        return;
+      }
+
+      // Si coincide con usuario demo o cualquier credencial en prototipo
+      const displayName = emailVal.includes("@") ? emailVal.split("@")[0] : emailVal;
+      const formattedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+      
+      const loggedUser = {
+        name: emailVal === DEMO_USER.email ? DEMO_USER.name : formattedName,
+        email: emailVal.includes("@") ? emailVal : `${emailVal}@drogueria.com`,
+        phone: DEMO_USER.phone,
+        address: DEMO_USER.address,
+        initials: (emailVal === DEMO_USER.email) ? "JP" : formattedName.slice(0, 2).toUpperCase()
+      };
+
+      performLogin(loggedUser, rememberInput?.checked ?? true);
+    });
+  }
+
+  // Formulario de Registro
+  if (registerForm) {
+    registerForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const nameInput = document.getElementById("registerName");
+      const emailInput = document.getElementById("registerEmail");
+      const phoneInput = document.getElementById("registerPhone");
+      const passInput = document.getElementById("registerPassword");
+
+      const nameVal = nameInput?.value.trim() || "";
+      const emailVal = emailInput?.value.trim() || "";
+      const phoneVal = phoneInput?.value.trim() || "";
+      const passVal = passInput?.value || "";
+
+      if (!nameVal || !emailVal || !phoneVal || !passVal) {
+        showToast("Por favor completa todos los campos del registro.", "remove");
+        return;
+      }
+
+      const initials = nameVal
+        .split(" ")
+        .filter(Boolean)
+        .map(w => w[0])
+        .slice(0, 2)
+        .join("")
+        .toUpperCase();
+
+      const newUser = {
+        name: nameVal,
+        email: emailVal,
+        phone: phoneVal,
+        address: "Av. Principal #45-12, Bogotá D.C.",
+        initials: initials || "VS"
+      };
+
+      performLogin(newUser, true);
+    });
+  }
+
+  // Eventos del modal de pedidos
+  if (closeUserOrdersModalBtn) {
+    closeUserOrdersModalBtn.addEventListener("click", closeUserOrdersModal);
+  }
+
+  if (userOrdersModal) {
+    userOrdersModal.addEventListener("click", (e) => {
+      if (e.target === userOrdersModal) closeUserOrdersModal();
+    });
+  }
+
+  // 9. Accesibilidad de teclado: tecla Escape para cerrar modales, drawers y menús
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       closeCart();
       closeDemoCheckoutModal();
+      closeAuthModal();
+      closeUserOrdersModal();
+      closeUserDropdown();
     }
   });
 
-  // Render inicial
+  // Cargar sesión guardada y render inicial
+  initAuth();
   applyFiltersAndSorting();
   updateCartUI();
 });
